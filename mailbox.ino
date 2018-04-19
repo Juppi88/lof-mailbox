@@ -1,10 +1,11 @@
 #include <Wire.h>
 #include <VL6180X.h>
 #include <NewPing.h>
+#include "switch.h"
 
 const int SWITCH_PIN = 7; // Pin for the door switch. Triggers an interrupt.
 const int SENSOR_CHECK_DELAY = 10000; // Time after which to check sensors after the box has been opened [ms]
-const int PROXIMITY_LIMIT = 100; // Distance which counts as proximity [mm]
+const int PROXIMITY_LIMIT = 90; // Distance which counts as proximity [mm]
 
 // Sensor status struct, to be sent to the central unit (RPI).
 struct status_t {
@@ -15,12 +16,17 @@ struct status_t {
 
 VL6180X sensor;
 NewPing sonar(5, 4, 200);
-static long timer;
+
+// Switches for the mailbox doors.
+Switch door_switch(8);
+Switch hatch_switch(9);
+
+static volatile long timer;
 
 ////////////////////////////////////////
 
 static void blink(int times);
-static void on_box_opened(void);
+//static void on_box_opened(void);
 static status_t check_sensors(void);
 static void send_sensor_data(status_t &status);
 
@@ -43,8 +49,8 @@ void setup()
   while (!Serial) { }
 
   // Attach an interrupt to the switch pin.
-  pinMode(SWITCH_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(SWITCH_PIN), on_box_opened, FALLING);
+  //pinMode(SWITCH_PIN, INPUT_PULLUP);
+  //attachInterrupt(digitalPinToInterrupt(SWITCH_PIN), on_box_opened, FALLING);
 }
 
 ////////////////////////////////////////
@@ -59,6 +65,18 @@ void loop()
 
     // Reset the timer.
     timer = 0;
+  }
+
+  // Mailbox hatch is opened, read the status of the sensors after a while.
+  if (hatch_switch.is_falling()) {
+    Serial.println("Mailbox hatch was opened!");
+    start_sensor_read();
+  }
+
+  // Mailbox door is closed, ditto.
+  if (door_switch.is_rising()) {
+    Serial.println("Mailbox door was closed!");
+    start_sensor_read();
   }
 }
 
@@ -75,11 +93,19 @@ static void blink(int times)
   }
 }
 
-static void on_box_opened(void)
+/*static void on_box_opened(void)
 {
   if (timer == 0) {
     Serial.println("Mail box was opened!");
     
+    // Start a timer and check the distance sensors when it times out (this happens in loop()).
+    timer = millis() + SENSOR_CHECK_DELAY;
+  }
+}*/
+
+static void start_sensor_read(void)
+{
+  if (timer == 0) {
     // Start a timer and check the distance sensors when it times out (this happens in loop()).
     timer = millis() + SENSOR_CHECK_DELAY;
   }
