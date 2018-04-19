@@ -1,5 +1,8 @@
 //#define WITH_SONAR
 
+#include <RHReliableDatagram.h>
+#include <RH_RF95.h>
+#include <SPI.h>
 #include <Wire.h>
 #include <VL6180X.h>
 #include "switch.h"
@@ -8,6 +11,21 @@
 #include <NewPing.h>
 #endif
 
+#define CLIENT_ADDRESS 1
+#define SERVER_ADDRESS 2
+
+// For feather m0  
+#define RFM95_CS 8
+#define RFM95_RST 4
+#define RFM95_INT 3
+
+// Frequency, must match RX's freq!
+#define RF95_FREQ 868.0
+
+// Milliseconds to wait for serial
+#define WAIT_FOR_SERIAL_MS 5000
+
+const int SWITCH_PIN = 7; // Pin for the door switch. Triggers an interrupt.
 const int SENSOR_CHECK_DELAY = 10000; // Time after which to check sensors after the box has been opened [ms]
 const int PROXIMITY_LIMIT = 90; // Distance which counts as proximity [mm]
 
@@ -25,10 +43,19 @@ NewPing sonar(5, 4, 200);
 #endif
 
 // Switches for the mailbox doors.
-Switch door_switch(8);
-Switch hatch_switch(9);
+Switch door_switch(9);
+Switch hatch_switch(10);
+
+// Singleton instance of the radio driver
+RH_RF95 rf95(RFM95_CS, RFM95_INT); // Adafruit Feather M0 with RFM95 
+
+// Class to manage message delivery and receipt, using the driver declared above
+RHReliableDatagram manager(rf95, CLIENT_ADDRESS);
 
 static volatile long timer;
+
+// Dont put this on the stack:
+uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
 
 ////////////////////////////////////////
 
@@ -41,6 +68,9 @@ static void send_sensor_data(status_t &status);
 
 void setup()
 {
+  // Take start time
+  unsigned long start = millis();
+    
   // Initialize the IR distance sensor.
   Wire.begin();
   sensor.init();
@@ -53,8 +83,37 @@ void setup()
 
   // Start serial interface.
   Serial.begin(57600);
-  while (!Serial) { }
+  
+  // Wait for serial port to be available
+  while (!Serial) {
+    if (millis() - start > WAIT_FOR_SERIAL_MS) {
+      break;
+    }
+  }
 
+  // Initialize Reliable datagram manager
+  if (!manager.init()) {
+    Serial.println("init failed");
+  }
+    // The default transmitter power is 13dBm, using PA_BOOST.
+  // If you are using RFM95/96/97/98 modules which uses the PA_BOOST transmitter pin, then 
+  // you can set transmitter powers from 5 to 23 dBm:
+//  rf95.setTxPower(23, false);
+  // You can optionally require this module to wait until Channel Activity
+  // Detection shows no activity on the channel before transmitting by setting
+  // the CAD timeout to non-zero:
+//  driver.setCADTimeout(10000);
+
+  Serial.println("LoRa radio init OK!");
+ 
+  // Defaults after init are 434.0MHz, 13dBm, Bw = 125 kHz, Cr = 4/5, Sf = 128chips/symbol, CRC on
+  // Defaults after init are 434.0MHz, modulation GFSK_Rb250Fd250, +13dbM
+  if (!rf95.setFrequency(RF95_FREQ)) {
+    Serial.println("setFrequency failed");
+    while (1);
+  }
+  Serial.print("Set Freq to: "); Serial.println(RF95_FREQ);
+  
   // Attach an interrupt to the switch pin.
   //pinMode(SWITCH_PIN, INPUT_PULLUP);
   //attachInterrupt(digitalPinToInterrupt(SWITCH_PIN), on_box_opened, FALLING);
@@ -142,7 +201,8 @@ static void send_sensor_data(status_t &status)
 {
   Serial.println("----------------------------------------");
   Serial.println("Status of mailbox sensors:");
-
+  Serial.println("Sending to RF95 Server");
+  
   Serial.print("IR: ");
   Serial.println(status.ir_distance);
 
@@ -156,6 +216,31 @@ static void send_sensor_data(status_t &status)
   }
   else {
     Serial.println("There is no mail in the mailbox.");
+  }
+
+  uint8_t data[sizeof(struct status_t)];
+  memcpy(data, &status, sizeof(struct status_t));
+
+  // Send a message to manager_server
+  if (manager.sendtoWait(data, sizeof(data), SERVER_ADDRESS))
+  {
+    // Now wait for a reply from the server
+    uint8_t len = sizeof(buf);
+    uint8_t from;   
+    if (manager.recvfromAckTimeout(buf, &len, 2000, &from))
+    {
+      Serial.print("got reply from : 0x");
+      Serial.print(from, HEX);
+      Serial.print(": ");
+      Serial.println((char*)buf);
+    }
+    else
+    {
+      Serial.println("No reply! Is RF95 Server running?");
+    }
+  }
+  else {
+    Serial.println("sendtoWait failed");
   }
   
   Serial.print("\n");
