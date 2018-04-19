@@ -1,7 +1,12 @@
+//#define WITH_SONAR
+
 #include <Wire.h>
 #include <VL6180X.h>
-#include <NewPing.h>
 #include "switch.h"
+
+#ifdef WITH_SONAR
+#include <NewPing.h>
+#endif
 
 const int SWITCH_PIN = 7; // Pin for the door switch. Triggers an interrupt.
 const int SENSOR_CHECK_DELAY = 10000; // Time after which to check sensors after the box has been opened [ms]
@@ -10,12 +15,15 @@ const int PROXIMITY_LIMIT = 90; // Distance which counts as proximity [mm]
 // Sensor status struct, to be sent to the central unit (RPI).
 struct status_t {
   bool has_mail;
-  uint16_t sonar_distance; // [mm]
   uint16_t ir_distance; // [mm]
+  uint16_t sonar_distance; // [mm]
 };
 
 VL6180X sensor;
+
+#ifdef WITH_SONAR
 NewPing sonar(5, 4, 200);
+#endif
 
 // Switches for the mailbox doors.
 Switch door_switch(8);
@@ -114,15 +122,19 @@ static void start_sensor_read(void)
 static status_t check_sensors(void)
 {
   status_t status;
-  
+
+  // Read distance from the other sensor.
+  status.ir_distance = sensor.readRangeSingleMillimeters();
+
+#ifdef WITH_SONAR
   // Read distance from the ultrasonic sensor [cm].
   status.sonar_distance = sonar.convert_cm(sonar.ping_median(5)) * 10;
 
-   // Read distance from the other sensor.
-  status.ir_distance = sensor.readRangeSingleMillimeters();
-
   // If any of the sensors detects proximity, there is probably mail in the box.
   status.has_mail = (status.sonar_distance <= PROXIMITY_LIMIT || status.ir_distance <= PROXIMITY_LIMIT);
+#else
+  status.has_mail = (status.ir_distance <= PROXIMITY_LIMIT);
+#endif
 
   return status;
 }
@@ -131,15 +143,22 @@ static void send_sensor_data(status_t &status)
 {
   Serial.println("----------------------------------------");
   Serial.println("Status of mailbox sensors:");
-  
-  Serial.print("Sonar: ");
-  Serial.println(status.sonar_distance);
 
   Serial.print("IR: ");
   Serial.println(status.ir_distance);
 
-  Serial.print("Has mail: ");
-  Serial.println(status.has_mail);
+#ifdef WITH_SONAR
+  Serial.print("Sonar: ");
+  Serial.println(status.sonar_distance);
+#endif
+
+  if (status.has_mail) {
+    Serial.println("!!! Mailbox has mail !!!");
+  }
+  else {
+    Serial.println("There is no mail in the mailbox.");
+  }
+  
   Serial.print("\n");
 }
 
