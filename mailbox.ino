@@ -8,7 +8,6 @@
 #include <NewPing.h>
 #endif
 
-const int SWITCH_PIN = 7; // Pin for the door switch. Triggers an interrupt.
 const int SENSOR_CHECK_DELAY = 10000; // Time after which to check sensors after the box has been opened [ms]
 const int PROXIMITY_LIMIT = 90; // Distance which counts as proximity [mm]
 
