@@ -1,3 +1,19 @@
+////////////////////////////////////////
+// Turku LoF LoRa Mailbox IoT project
+//
+// Mailbox client with sensors
+// ---------------------------
+// Mailbox Client has two switches, one for door and one for hatch.
+// Based on switch rise / fall, client waits until mail is dropped in / taken out of the box,
+// and then reads sensor information.
+// Based on sensor information client decides if mailbox is empty or not. 
+// Mailbox state information is sent over RF95 radio to mailbox server.
+//
+// Communication code is based on reliable messaging client with the RHReliableDatagram class, 
+// using the RH_RF95 driver to control a RF95 radio. Client is designed to work 
+// with server that is based on example RF95 Reliable datagram server.
+////////////////////////////////////////
+
 //#define WITH_SONAR
 
 #include <RHReliableDatagram.h>
@@ -46,8 +62,8 @@ NewPing sonar(5, 4, 200);
 Switch door_switch(9);
 Switch hatch_switch(10);
 
-// Singleton instance of the radio driver
-RH_RF95 rf95(RFM95_CS, RFM95_INT); // Adafruit Feather M0 with RFM95 
+// Singleton instance of the radio driver for Adafruit Feather M0 with RFM95 
+RH_RF95 rf95(RFM95_CS, RFM95_INT);
 
 // Class to manage message delivery and receipt, using the driver declared above
 RHReliableDatagram manager(rf95, CLIENT_ADDRESS);
@@ -95,7 +111,7 @@ void setup()
   if (!manager.init()) {
     Serial.println("init failed");
   }
-    // The default transmitter power is 13dBm, using PA_BOOST.
+  // The default transmitter power is 13dBm, using PA_BOOST.
   // If you are using RFM95/96/97/98 modules which uses the PA_BOOST transmitter pin, then 
   // you can set transmitter powers from 5 to 23 dBm:
 //  rf95.setTxPower(23, false);
@@ -108,6 +124,7 @@ void setup()
  
   // Defaults after init are 434.0MHz, 13dBm, Bw = 125 kHz, Cr = 4/5, Sf = 128chips/symbol, CRC on
   // Defaults after init are 434.0MHz, modulation GFSK_Rb250Fd250, +13dbM
+  // Lets change frequency to European LoRa, 868.0MHz
   if (!rf95.setFrequency(RF95_FREQ)) {
     Serial.println("setFrequency failed");
     while (1);
@@ -218,6 +235,7 @@ static void send_sensor_data(status_t &status)
     Serial.println("There is no mail in the mailbox.");
   }
 
+  // Pack data to send to server
   uint8_t data[sizeof(struct status_t)];
   memcpy(data, &status, sizeof(struct status_t));
 
@@ -229,7 +247,7 @@ static void send_sensor_data(status_t &status)
     uint8_t from;   
     if (manager.recvfromAckTimeout(buf, &len, 2000, &from))
     {
-      Serial.print("got reply from : 0x");
+      Serial.print("Got reply from server: 0x");
       Serial.print(from, HEX);
       Serial.print(": ");
       Serial.println((char*)buf);
