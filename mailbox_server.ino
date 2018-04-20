@@ -1,9 +1,15 @@
-// rf95_reliable_datagram_server.pde
-// -*- mode: C++ -*-
-// Example sketch showing how to create a simple addressed, reliable messaging server
-// with the RHReliableDatagram class, using the RH_RF95 driver to control a RF95 radio.
-// It is designed to work with the other example rf95_reliable_datagram_client
-// Tested with Anarduino MiniWirelessLoRa, Rocket Scream Mini Ultra Pro with the RFM95W 
+////////////////////////////////////////
+// Turku LoF LoRa Mailbox IoT project
+//
+// Mailbox state server
+// --------------------
+// Server receives mailbox state from client and sends state over serial to e.g. 
+// Raspberry pi that can forward the information to IoT-Ticket.
+//
+// Code is based on reliable messaging server with the RHReliableDatagram class, 
+// using the RH_RF95 driver to control a RF95 radio. Server is designed to work 
+// with client that is based on example RF95 Reliable datagram client.
+////////////////////////////////////////
 
 #include <RHReliableDatagram.h>
 #include <RH_RF95.h>
@@ -23,8 +29,8 @@
 // Milliseconds to wait for serial
 #define WAIT_FOR_SERIAL_MS 5000
 
-// Singleton instance of the radio driver
-RH_RF95 rf95(RFM95_CS, RFM95_INT); // Adafruit Feather M0 with RFM95 
+// Singleton instance of the radio driver for Adafruit Feather M0 with RFM95 
+RH_RF95 rf95(RFM95_CS, RFM95_INT);
 
 // Class to manage message delivery and receipt, using the driver declared above
 RHReliableDatagram manager(rf95, SERVER_ADDRESS);
@@ -36,8 +42,13 @@ struct status_t {
   uint16_t sonar_distance; // [mm]
 };
 
+uint8_t data[] = "And hello back to you";
+// Dont put this on the stack:
+uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
+
 ////////////////////////////////////////
 
+static void blink(int times);
 static void send_sensor_data_to_serial(status_t &status);
 
 ////////////////////////////////////////
@@ -59,9 +70,6 @@ void setup()
   if (!manager.init()) {
     Serial.println("init failed");
   }
-  
-  if (!manager.init())
-    Serial.println("init failed");
 
   // The default transmitter power is 13dBm, using PA_BOOST.
   // If you are using RFM95/96/97/98 modules which uses the PA_BOOST transmitter pin, then 
@@ -76,30 +84,17 @@ void setup()
  
   // Defaults after init are 434.0MHz, 13dBm, Bw = 125 kHz, Cr = 4/5, Sf = 128chips/symbol, CRC on
   // Defaults after init are 434.0MHz, modulation GFSK_Rb250Fd250, +13dbM
+  // Lets change frequency to European LoRa, 868.0MHz
   if (!rf95.setFrequency(RF95_FREQ)) {
     Serial.println("setFrequency failed");
     while (1);
   }
   Serial.print("Set Freq to: "); Serial.println(RF95_FREQ);
+
+  blink(5);
 }
 
-uint8_t data[] = "And hello back to you";
-// Dont put this on the stack:
-uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
-
-static void send_sensor_data_to_serial(status_t &status)
-{
-  Serial.println("-- TO Raspberry -->"); 
-  if (status.has_mail) {
-    Serial.println("M:1");
-  }
-  else {
-    Serial.println("M:0");
-  }
-  Serial.print("IR:");
-  Serial.println(status.ir_distance);
-  Serial.println("<-- TO Raspberry --"); 
-}
+////////////////////////////////////////
 
 void loop()
 {
@@ -144,4 +139,32 @@ void loop()
     }
   }
 }
+
+////////////////////////////////////////
+
+static void blink(int times)
+{
+  for (int i = 0; i < times; i++) {
+    
+    digitalWrite(LED_BUILTIN, HIGH);
+    delay(250);
+    digitalWrite(LED_BUILTIN, LOW);
+    delay(250);
+  }
+}
+
+static void send_sensor_data_to_serial(status_t &status)
+{
+  Serial.println("-- TO Raspberry -->"); 
+  if (status.has_mail) {
+    Serial.println("M:1");
+  }
+  else {
+    Serial.println("M:0");
+  }
+  Serial.print("IR:");
+  Serial.println(status.ir_distance);
+  Serial.println("<-- TO Raspberry --"); 
+}
+
 
